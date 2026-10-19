@@ -1,0 +1,189 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// --- NextAuth Models ---
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?   // Added for mock credentials
+  accounts      Account[]
+  sessions      Session[]
+  workspaces    WorkspaceMember[]
+  tasks         Task[]    @relation("TaskAssignee") // Tasks assigned to this user
+  reviewedTasks Task[]    @relation("TaskReviewer") // Tasks where this user is reviewer
+  comments      Comment[] // Comments authored by this user
+  notifications Notification[] // Notifications received by this user
+  taskActivities TaskActivity[] // Activities triggered by this user
+  resources     Resource[] // Resources allocated to this user
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// --- Tenant Models ---
+model Workspace {
+  id          String   @id @default(cuid())
+  name        String
+  createdAt   DateTime @default(now())
+  members     WorkspaceMember[]
+  projects    Project[]
+  tasks       Task[]
+  comments    Comment[]
+  notifications Notification[]
+  resources   Resource[]
+}
+
+model WorkspaceMember {
+  id          String   @id @default(cuid())
+  role        String   @default("MEMBER") // OWNER, ADMIN, MEMBER
+  workspaceId String
+  userId      String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([workspaceId, userId])
+}
+
+// --- Application Models ---
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  tasks       Task[]
+}
+
+model Task {
+  id                String      @id @default(cuid())
+  title             String
+  description       String?
+  status            String      @default("TODO") // TODO, IN_PROGRESS, DONE
+  priority          String      @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  dueDate           DateTime?
+  externalIssueLink String?
+  createdAt         DateTime    @default(now())
+  
+  workspaceId       String
+  workspace         Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  projectId         String
+  project           Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  assigneeId        String?
+  assignee          User?       @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  
+  reviewerId        String?
+  reviewer          User?       @relation("TaskReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  
+  comments          Comment[]
+  activities        TaskActivity[]
+}
+
+model Comment {
+  id          String   @id @default(cuid())
+  content     String
+  createdAt   DateTime @default(now())
+  
+  taskId      String
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  
+  authorId    String
+  author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  message     String
+  link        String?
+  read        Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model TaskActivity {
+  id        String   @id @default(cuid())
+  action    String   // STATUS_CHANGE, ASSIGNEE_CHANGE, REVIEWER_CHANGE, PRIORITY_CHANGE, TASK_CREATED, etc.
+  details   String   // Human-readable change text e.g. "changed status from To Do to In Progress"
+  createdAt DateTime @default(now())
+
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model Resource {
+  id          String    @id @default(cuid())
+  name        String    // e.g. "Ubuntu 22.04 LTS VM", "AWS Dev Sandbox", "MacBook Pro M3", "JetBrains All Products License"
+  type        String    @default("VM") // VM, CLOUD_INSTANCE, HARDWARE, LICENSE, DATABASE, OTHER
+  identifier  String?   // e.g. IP Address "10.0.1.42", AWS ARN, Serial Number, License Key
+  specs       String?   // e.g. "8 vCPU, 32 GB RAM, 250 GB SSD"
+  status      String    @default("ACTIVE") // ACTIVE, PROVISIONING, INACTIVE, DECOMMISSIONED
+  accessInfo  String?   // e.g. "SSH port 2222, access via VPN", "Console URL https://..."
+  notes       String?   // Additional notes or instructions
+  allocatedAt DateTime  @default(now())
+  expiresAt   DateTime? // Optional expiration date
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
